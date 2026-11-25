@@ -1,0 +1,50 @@
+name: Sus10 Beats Cloud Worker
+
+on:
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sus10beats-cloud-worker
+  cancel-in-progress: false
+
+jobs:
+  process-one-approved-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Check configuration
+        run: python -m worker.main --health-check
+        env:
+          SITE_API_BASE_URL: ${{ vars.SITE_API_BASE_URL }}
+          SITE_WORKER_SHARED_SECRET: ${{ secrets.SITE_WORKER_SHARED_SECRET }}
+          WORKER_PUBLISH_ENABLED: ${{ vars.WORKER_PUBLISH_ENABLED }}
+      - name: Claim and render one job
+        run: python -m worker.main
+        env:
+          SITE_API_BASE_URL: ${{ vars.SITE_API_BASE_URL }}
+          SITE_WORKER_SHARED_SECRET: ${{ secrets.SITE_WORKER_SHARED_SECRET }}
+          WORKER_PUBLISH_ENABLED: ${{ vars.WORKER_PUBLISH_ENABLED }}
+          SITE_ALLOWED_ASSET_HOSTS: ${{ vars.SITE_ALLOWED_ASSET_HOSTS }}
+          MAX_AUDIO_MB: "200"
+          MAX_COVER_MB: "15"
+          MAX_VIDEO_SECONDS: "900"
