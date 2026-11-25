@@ -2,7 +2,7 @@
 
 This document defines the integration boundary between the PHP/MySQL marketplace and the cloud runner. The website remains the authority for producer approval, final administrator approval, and the connected Sus10 Beats YouTube channel.
 
-**Do not connect this worker to the live site until these endpoints and artifact storage are implemented and tested.** This repository does not change the marketplace database or PHP application.
+**Do not connect this worker to the live site until these endpoints and private artifact storage are implemented and tested.** This repository does not change the marketplace database or PHP application.
 
 ## Authentication
 
@@ -17,7 +17,7 @@ The signed message is exactly:
 {timestamp}\nPOST\n{request_path}\n{sha256_hex_of_exact_request_body}
 ```
 
-The key is a random secret of at least 32 bytes, stored privately in marketplace server configuration and GitHub Actions secret `SITE_WORKER_SHARED_SECRET`. The PHP endpoint must reject timestamps outside a five-minute window, compare signatures in constant time, cap body size, and rate-limit failed requests. Do not place this key in the repository or browser code.
+The key is a random secret of at least 32 bytes, stored privately in marketplace server configuration and GitHub Actions secret `SITE_WORKER_SHARED_SECRET`. The PHP endpoint must reject timestamps outside a five minutes window, compare signatures in constant time, cap body size, and rate-limit failed requests. Do not place this key in the repository or browser code.
 
 ## Claim
 
@@ -41,14 +41,20 @@ Claimed job:
     "title": "Beat title",
     "producer_name": "Producer display name",
     "audio_url": "https://sus10beats.great-site.net/short-lived-signed-audio-url",
-    "cover_url": "https://sus10beats.great-site.net/short-lived-signed-cover-url"
+    "cover_url": "https://sus10beats.great-site.net/short-lived-signed-cover-url",
+    "artifact_upload_url": "https://private-object-storage.example/short-lived-presigned-put-url",
+    "artifact_key": "private/promos/job-id.mp4"
   }
 }
 ```
 
-The server must atomically lease exactly one eligible job. Only jobs with producer approval and any required final admin approval may be claimed. Suggested lease duration: 30 minutes. Asset URLs must be short-lived, read-only, HTTPS URLs.
+Audio, cover, and storage hosts must be in the worker's explicit allow-list. The upload URL must be short-lived, write-only for one object, restricted to the expected content type and size, and must keep the storage object private.
 
-## Rendered callback
+The server must atomically lease exactly one eligible job. Only jobs with producer approval and any required final admin approval may be claimed. Suggested lease duration: 30 minutes. Audio and cover URLs must be short-lived, read-only, HTTPS URLs.
+
+## Store and report the rendered video
+
+The worker uploads the MP4 with an HTTPS `PUT` to `artifact_upload_url`, then calls:
 
 `POST /api/worker/v1/jobs/{job_id}/rendered`
 
@@ -62,24 +68,20 @@ Request:
     "duration_seconds": 91.25,
     "size_bytes": 12345678,
     "filename": "sus10-beats-promo.mp4",
+    "artifact_key": "private/promos/job-id.mp4",
     "publishing_state": "disabled"
   }
 }
 ```
 
-The metadata callback alone does not preserve the MP4. Before production, implement one of these approaches:
-
-1. include a short-lived pre-signed object-storage upload URL in the claim response and have the worker upload the rendered file before this callback; or
-2. add an authenticated multipart upload endpoint with strict file-size limits.
-
-The site should store the video in private storage and expose it only to authorized admins/producers for review. Do not rely on a temporary Actions artifact as permanent marketplace storage.
+The marketplace must verify the lease token and artifact key, store the metadata, and set the job to a reviewable state. Provide a separately authorized, short-lived download URL to admins/producers when they preview the rendered file. Do not make generated promo files public by default.
 
 ## Failed callback
 
 `POST /api/worker/v1/jobs/{job_id}/failed`
 
 ```json
-{"lease_token":"the-lease-token-from-claim","error_code":"render_failed","message":"Short safe diagnostic"}
+{"lease_token":"the-lease-token-from-claim","error_code":"worker_job_failed","message":"The cloud worker could not finish this job."}
 ```
 
 Do not persist tracebacks, OAuth tokens, HMAC signatures, signed URLs, or server paths in marketplace logs.
