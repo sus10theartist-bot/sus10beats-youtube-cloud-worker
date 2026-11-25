@@ -3,74 +3,35 @@ name: Sus10 Beats YouTube Cloud Worker
 on:
   push:
     branches: [main]
-  schedule:
-    # Run every five minutes, offset from the top of the hour.
-    - cron: '2-59/5 * * * *'
   workflow_dispatch:
-    inputs:
-      mode:
-        description: 'Probe the website bridge, or process one queued job'
-        required: true
-        type: choice
-        default: probe
-        options:
-          - probe
-          - process-one
 
 permissions:
   contents: read
 
 concurrency:
-  group: sus10-beats-youtube-cloud-worker
+  group: sus10-beats-youtube-cloud-worker-validation
   cancel-in-progress: false
 
 jobs:
-  test:
-    name: Validate worker code
+  validate-existing-source:
+    name: Validate source only — queue paused
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out worker code
+      - name: Check out repository
         uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - name: Install worker dependency
+      - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
-      - name: Compile Python files
+      - name: Compile Python source
         run: python -m compileall -q worker.py cloud_runner.py tests
-      - name: Run automated tests
+      - name: Run existing Python tests
         run: python -m unittest discover -s tests -v
 
-  process-youtube-queue:
-    name: Cloud bridge and queue worker
-    needs: test
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      SUS10_SITE_URL: https://sus10beats.great-site.net
-      SUS10_WORKER_SECRET: ${{ secrets.SUS10_WORKER_SECRET }}
-    steps:
-      - name: Check out worker code
-        uses: actions/checkout@v7
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg
-          ffmpeg -version | head -n 1
-      - name: Install worker dependency
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
-      - name: Validate cloud configuration
-        run: python cloud_runner.py --check
-      - name: Probe signed website bridge
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'probe'
-        run: python cloud_runner.py --probe
-      - name: Process one queue job
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'process-one')
-        run: python cloud_runner.py --once
+# The old direct GitHub-to-InfinityFree queue runner has been paused.
+# InfinityFree inserts an HTML browser challenge on incoming non-browser calls.
+# Replace this validation-only workflow with the RC7 Cloudflare reverse-bridge
+# workflow from the RC7 package after its files are uploaded to this repository.
